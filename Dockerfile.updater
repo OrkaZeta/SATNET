@@ -1,0 +1,7 @@
+FROM node:24-alpine
+
+WORKDIR /app
+COPY update-data.mjs ./update-data.mjs
+COPY public/data/ /seed-data/
+
+CMD ["node", "update-data.mjs"]

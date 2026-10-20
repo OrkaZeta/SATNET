@@ -9,6 +9,7 @@ import {EARTH_RADIUS_METERS, ORBIT_TYPES} from "/js/utils/constants.js";
 // Keep col: #Launch_Tag, Launch_Date, Piece, Name, PLName, SatOwner, SatState, Launch_Site
 const REQUIRED_COLUMNS = ["#Launch_Tag", "Launch_Date", "Piece", "Name", "PLName", "SatOwner", "SatState", "Launch_Site", "LVState"];
 const SITE_REQUIRED_COLUMNS = ["#Site", "Longitude", "Latitude", "Type", "TStart", "TStop"];
+const MONTH_INDEX = {jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11};
 
 export function dataUpdate(data, currentDate) {
     const oneYearAgo = new Date(currentDate.getTime() - 365 * 24 * 60 * 60 * 1000);
@@ -22,30 +23,37 @@ export function dataUpdate(data, currentDate) {
 }
 
 function parseStringDate(rawDatetime) {
-    rawDatetime = rawDatetime.replaceAll('?', '').slice(0, 16);
+    if (typeof rawDatetime !== "string" || !rawDatetime.trim()) return null;
 
-    if (rawDatetime.length < 12) {
-        rawDatetime += " 0000";
+    const match = rawDatetime.replaceAll('?', '').trim()
+        .match(/^(\d{4})\s+([A-Za-z]{3})\s+(\d{1,2})(?:\s+(\d{1,4})(?::\d{1,2})?)?/);
+    if (!match) return null;
+
+    const [, yearText, monthText, dayText, timeText = "0000"] = match;
+    const year = Number(yearText);
+    const month = MONTH_INDEX[monthText.toLowerCase()];
+    const day = Number(dayText);
+    const time = timeText.padStart(4, "0");
+    const hour = Number(time.slice(0, 2));
+    const minute = Number(time.slice(2, 4));
+    if (month === undefined || hour > 23 || minute > 59) return null;
+
+    const parsedDatetime = new Date(year, month, day, hour, minute);
+    if (parsedDatetime.getFullYear() !== year || parsedDatetime.getMonth() !== month || parsedDatetime.getDate() !== day) {
+        return null;
     }
-
-    const parse = d3.timeParse("%Y %b %d %H%M");
-    const parsedDatetime = parse(rawDatetime);
-
-    if (!parsedDatetime) {
-        throw new Error(`Invalid datetime format: ${rawDatetime}`);
-    }
-
     return parsedDatetime;
 }
 
-function cleanDataColumns(data, columns) {
-    return data
-        .filter(row => Object.values(row).every(value => value !== null && value !== undefined && value !== ''))
-        .map(row => {
-            const cleanedRow = {};
-            columns.forEach(col => cleanedRow[col] = row[col]);
-            return cleanedRow;
-        });
+function updateClockStopTime(data) {
+    if (!Array.isArray(data) || !data.length || !ctx.view3D?.clock) return;
+
+    const latestLaunchDate = d3.max(data, row => new Date(row.Launch_Date));
+    if (!latestLaunchDate || !Number.isFinite(latestLaunchDate.getTime())) return;
+
+    const stopDate = latestLaunchDate > new Date() ? latestLaunchDate : new Date();
+    ctx.view3D.clock.stopTime = Cesium.JulianDate.fromDate(stopDate);
+    if (ctx.view2D?.clock) ctx.view2D.clock.stopTime = ctx.view3D.clock.stopTime;
 }
 
 export async function loadSites() {
@@ -60,10 +68,17 @@ export async function loadSites() {
         const parsedData = data.map(row => ({
             ...row
         }));
-        let cleanedData = cleanDataColumns(parsedData, SITE_REQUIRED_COLUMNS);
-        cleanedData = cleanedData.filter(
-            d => d.Type == "LS" && d.TStart != '-' && d.TStart &&
-                d.TStart <= 2011 && d.TStop != '-');
+        let cleanedData = parsedData.map(row => {
+            const cleanedRow = {};
+            SITE_REQUIRED_COLUMNS.forEach(col => cleanedRow[col] = row[col] ?? '');
+            return cleanedRow;
+        });
+        cleanedData = cleanedData.filter(d => {
+            const longitude = Number(d.Longitude);
+            const latitude = Number(d.Latitude);
+            return d.Type === "LS" && Number.isFinite(longitude) && Number.isFinite(latitude) &&
+                longitude >= -180 && longitude <= 180 && latitude >= -90 && latitude <= 90;
+        });
         // console.log(cleanedData);
         ctx.SITES.DATA = cleanedData.reduce((acc, site) => {
             const siteKey = site["#Site"].trim();
@@ -123,6 +138,7 @@ export async function loadLaunchLog() {
                 ...row,
                 Launch_Date: new Date(row.Launch_Date),
             }));
+            updateClockStopTime(ctx.LAUNCHLOG.DATA);
             console.log("Fetched launch log data from cache");
             return;
         }
@@ -131,14 +147,35 @@ export async function loadLaunchLog() {
     try {
         const data = await d3.dsv('\t', ctx.LAUNCHLOG.URL);
 
-        const parsedData = data.map(row => ({
-            ...row,
-            Launch_Date: parseStringDate(row.Launch_Date),
-        }));
+        // GCAT adds comment/metadata records (for example "# Updated ...")
+        // after the TSV header. Ignore those and malformed individual rows so
+        // one metadata line cannot discard the entire launch history.
+        const parsedData = data
+            .filter(row => {
+                const launchTag = row["#Launch_Tag"]?.trim();
+                return launchTag && !launchTag.startsWith("#");
+            })
+            .map(row => ({
+                ...row,
+                Launch_Date: parseStringDate(row.Launch_Date),
+            }));
 
-        const cleanedData = cleanDataColumns(parsedData, REQUIRED_COLUMNS);
+        const cleanedData = parsedData
+            .filter(row => row.Launch_Date instanceof Date && Number.isFinite(row.Launch_Date.getTime()))
+            .map(row => {
+                const cleanedRow = {};
+                REQUIRED_COLUMNS.forEach(col => cleanedRow[col] = row[col] ?? "");
+                return cleanedRow;
+            });
+
+        if (!cleanedData.length) throw new Error("The launch log contains no rows with valid launch dates");
         ctx.LAUNCHLOG.DATA = cleanedData;
         console.log("Fetched launch log data from server");
+
+        // Keep the playback range aligned with dates represented in the feed.
+        // Weekly feed updates naturally move this boundary forward; avoid a
+        // five-year empty tail after the newest known launch.
+        updateClockStopTime(cleanedData);
 
         // Load sites data and match with location
         const siteData = await loadSites();
@@ -146,7 +183,7 @@ export async function loadLaunchLog() {
             const launchSite = launch.Launch_Site;
             const map_loc = siteData[launchSite];
             if (map_loc) launch["loc"] = map_loc;
-            else launch["loc"] = {Longitude: 0, Latitude: 0};
+            else launch["loc"] = null;
         });
 
         saveToCache(ctx.LAUNCHLOG.CACHE_KEY, cleanedData, ctx.CACHE_DURATION).then(() => console.log("Fetched launch log data from server"));

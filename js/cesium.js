@@ -33,15 +33,15 @@ async function loadViz() {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Add widgets
-    addWidgets().then(() => console.log('Widgets loaded'));
-
     /********************************************** Data Initialization **********************************************/
     // Init load global data
     await loadLaunchLog();
     // Init load site data
     await loadSites();
     await loadCountry();
+    // Build the timeline after launch data sets its latest known playback date.
+    await addWidgets();
+    console.log('Widgets loaded');
     setInterval(() => {
         const currentDate = Cesium.JulianDate.toDate(ctx.view3D.clock.currentTime);
         dataUpdate(ctx.LAUNCHLOG.DATA, currentDate);
