@@ -25,7 +25,7 @@ export const ctx = {
 
     LAUNCHLOG: {
         NAME: "LaunchLog",
-        CACHE_KEY: "launchlog_cache_v2",
+        CACHE_KEY: "launchlog_cache",
         URL: "/data/launchlog.tsv", // Configurable via environment if needed
         DATA: null, // To be populated with launch log data
     },
@@ -37,7 +37,7 @@ export const ctx = {
     },
     SITES: {
         NAME: "Site",
-        CACHE_KEY: "site_cache_v2",
+        CACHE_KEY: "site_cache",
         URL: "/data/sites.tsv", // Configurable via environment if needed
         DATA: null, // To be populated with launch log data
     },

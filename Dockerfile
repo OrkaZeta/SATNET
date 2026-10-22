@@ -6,6 +6,8 @@ RUN node -e "const fs=require('node:fs'); const p=JSON.parse(fs.readFileSync('pa
     && npm install --no-package-lock --no-audit --no-fund
 
 COPY . .
+ARG VITE_ION_TOKEN
+ENV VITE_ION_TOKEN=${VITE_ION_TOKEN}
 RUN npm run build
 
 FROM nginx:1.27-alpine

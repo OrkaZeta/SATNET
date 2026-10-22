@@ -12,6 +12,8 @@ export default defineConfig({
     },
     define: {
         CESIUM_BASE_URL: JSON.stringify("/cesium/"),
+        // A new frontend build invalidates the browser-side IndexedDB cache once.
+        __SATNET_BUILD_ID__: JSON.stringify(new Date().toISOString()),
     },
     plugins: [cesium()],
     optimizeDeps: {

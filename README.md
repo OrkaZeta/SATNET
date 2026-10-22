@@ -1,27 +1,30 @@
 # SATNET
 
----
+3D satellite visualization and launch-data analysis.
 
-3D satellite plotting application with the ability to highlight specific satellites and display detailed information.
-
-![satellite_image](./Imgs/overview.png)
-
-
-# Run the Project
-## Installation Dependencies
+## Local development
 
 ```bash
 npm install
+cp .env.example .env
 ```
 
-## Scripts Supported by npm
+Set `VITE_ION_TOKEN` in `.env`, then run `npm run dev` and open <http://localhost:4170/>.
+Use `npm run build` to build and `npm run serve` to preview the production build.
 
-- **start**: Starts the Vite development server `npm start` or `npm run dev`.
-- **build**: Builds the project for production `npm run build`.
-- **serve**: Serves the built project for preview `npm run serve`.
+## Docker
 
-  After running `npm run build`, the project will be built in the `dist` directory. You can preview the built project by running `npm run serve`.
-- After script running, the webpage can be shown in the ***[http://localhost:4170/](http://localhost:4170/)***.
+The Cesium token is embedded into the static frontend at image-build time. Define it explicitly, then build and run:
+
+```bash
+export VITE_ION_TOKEN='your-cesium-ion-token'
+docker build --build-arg VITE_ION_TOKEN="$VITE_ION_TOKEN" -t satnet .
+docker run -d --name satnet --restart unless-stopped -p 4170:80 satnet
+```
+
+Passing `VITE_ION_TOKEN` to `docker run` is not sufficient; rebuild the image when changing the token. The token is delivered to browsers, so configure appropriate restrictions in Cesium ion.
+
+![satellite_image](./Imgs/overview.png)
 
 # Visualization
 

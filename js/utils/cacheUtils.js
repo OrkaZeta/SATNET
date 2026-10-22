@@ -1,6 +1,11 @@
 // js/utils/cacheUtils.js
 import { ctx } from "/js/utils/config";
 
+const CACHE_BUILD_ID = typeof __SATNET_BUILD_ID__ === "undefined"
+    ? "development"
+    : __SATNET_BUILD_ID__;
+const CACHE_BUILD_STORAGE_KEY = "satnet-cache-build-id";
+
 // Initialize the IndexedDB connection and wrap it in a Promise
 export const dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open("cacheDatabase", 1);
@@ -16,7 +21,40 @@ export const dbPromise = new Promise((resolve, reject) => {
     // Resolve the promise with the database instance once it's successfully opened
     request.onsuccess = function (event) {
         const db = event.target.result;
-        resolve(db);
+        let previousBuildId;
+        try {
+            previousBuildId = localStorage.getItem(CACHE_BUILD_STORAGE_KEY);
+        } catch (error) {
+            console.warn("Unable to read SATNET cache build marker:", error);
+            resolve(db);
+            return;
+        }
+
+        if (previousBuildId === CACHE_BUILD_ID) {
+            resolve(db);
+            return;
+        }
+
+        // Keep cache keys stable. Clear the single cache store when the app build changes.
+        const transaction = db.transaction("cache", "readwrite");
+        transaction.objectStore("cache").clear();
+        transaction.oncomplete = () => {
+            try {
+                localStorage.setItem(CACHE_BUILD_STORAGE_KEY, CACHE_BUILD_ID);
+            } catch (error) {
+                console.warn("Unable to save SATNET cache build marker:", error);
+            }
+            console.info("Cleared SATNET browser cache for the new app build.");
+            resolve(db);
+        };
+        transaction.onerror = () => {
+            console.error("Unable to clear SATNET browser cache:", transaction.error);
+            reject(transaction.error);
+        };
+        transaction.onabort = () => {
+            console.error("SATNET browser cache clear was aborted:", transaction.error);
+            reject(transaction.error || new Error("Cache clear aborted"));
+        };
     };
 
     // Reject the promise if there's an error opening the database
